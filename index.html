@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>Chat Example</title>
+<script type="text/javascript">
+window.onload = function () {
+    var conn;
+    var msg = document.getElementById("msg");
+    var log = document.getElementById("log");
+    var id = -1;
+    var isConnecting = false;
+    var isReconnecting = false;
+    var isExpectingReconnect = false;
+
+    
+    function appendLog(item) {
+        var doScroll = log.scrollTop > log.scrollHeight - log.clientHeight - 1;
+        log.appendChild(item);
+        if (doScroll) {
+            log.scrollTop = log.scrollHeight - log.clientHeight;
+        }
+    }
+    document.getElementById("form").onsubmit = function () {
+        if (!conn) {
+            return false;
+        }
+        if (!msg.value) {
+            return false;
+        }
+        conn.send(msg.value);
+        msg.value = "";
+        return false;
+    };
+
+
+    if (window["WebSocket"]) {
+        conn = new WebSocket("ws://" + document.location.host + "/ws");
+        conn.onclose = function (evt) {
+            var item = document.createElement("div");
+            item.innerHTML = "<b>Connection closed.</b>";
+            appendLog(item);
+        };
+
+        conn.onmessage = function (evt) 
+        {
+            // message can either be a new ID, or a request for the existing ID
+            if (evt.data instanceof ArrayBuffer)
+            {
+                console.log("Cant work with array buffer")
+            }
+            else if (evt.data instanceof Blob) 
+            {
+                var arrayBuffer;
+                var fileReader = new FileReader();
+                fileReader.onload = function() {
+                    arrayBuffer = this.result;
+                    if (isReconnecting && !isExpectingReconnect)
+                        reconnecting(conn)
+                    else if (isExpectingReconnect)
+                        onReconnect(arrayBuffer)
+                    else
+                        newClient(arrayBuffer)
+                };
+                fileReader.readAsArrayBuffer(evt.data);
+            }
+            else 
+            {
+                var messages = evt.data.split('\n');
+                for (var i = 0; i < messages.length; i++) {
+                    var item = document.createElement("div");
+                    item.innerText = messages[i];
+                    appendLog(item);
+                }
+            }
+        };
+
+        conn.onopen = doStart
+    } else {
+        var item = document.createElement("div");
+        item.innerHTML = "<b>Your browser does not support WebSockets.</b>";
+        appendLog(item);
+    }
+
+    function doStart()
+    {
+        id = localStorage.getItem("id")
+        var bytearray = new Uint8Array(1);
+        isReconnecting = (id && id != -1);
+        bytearray[0] = isReconnecting? 1 : 0;
+        conn.send(bytearray.buffer);
+    }
+
+    function newClient(arrayBuffer)
+    {
+        id = new DataView(arrayBuffer).getInt32(0, true)
+        localStorage.setItem("id", id)
+    }
+
+    function reconnecting(conn)
+    {
+        var buffer = new ArrayBuffer(4)
+        var view = new DataView(buffer)
+        view.setInt32(0, parseInt(id))
+
+        isExpectingReconnect = true
+        conn.send(view.buffer)
+    }
+
+    function onReconnect(buf)
+    {
+        var code = new Uint8Array(buf)[0]
+        if (code == 1)
+        {
+            localStorage.removeItem("id");
+            doStart();
+        }
+        else
+        {
+            console.log("Reconnected!")
+        }
+    }
+};
+</script>
+<style type="text/css">
+html {
+    overflow: hidden;
+}
+body {
+    overflow: hidden;
+    padding: 0;
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    background: gray;
+}
+#log {
+    background: white;
+    margin: 0;
+    padding: 0.5em 0.5em 0.5em 0.5em;
+    position: absolute;
+    top: 0.5em;
+    left: 0.5em;
+    right: 0.5em;
+    bottom: 3em;
+    overflow: auto;
+}
+#form {
+    padding: 0 0.5em 0 0.5em;
+    margin: 0;
+    position: absolute;
+    bottom: 1em;
+    left: 0px;
+    width: 100%;
+    overflow: hidden;
+}
+</style>
+</head>
+<body>
+<div id="log"></div>
+<form id="form">
+    <input type="submit" value="Send" />
+    <input type="text" id="msg" size="64"/>
+</form>
+</body>
+</html>
